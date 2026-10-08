@@ -7,7 +7,8 @@ const { google } = require('googleapis');
 const db = require('./db');
 const { classifyEmail, categorize } = require('./classifier');
 const { getClientForUser } = require('./googleAuth');
-const { sendPush } = require('./notify');
+// ntfy push notifications are disabled for now (notify.js is kept for later).
+// const { sendPush } = require('./notify');
 
 const TRUSTED_DOMAINS = (process.env.TRUSTED_EMAIL_DOMAINS || '')
   .split(',')
@@ -244,24 +245,13 @@ async function scanClassroom(user) {
 // --- Notification dispatch -------------------------------------------------
 
 async function notifyNewTasks(user, taskIds) {
+  // Push notifications are turned off for now. We only mark tasks as
+  // notified so they are not picked up again if notifications come back.
   if (!taskIds.length) return;
 
-  const rows = db.prepare(
-    `SELECT * FROM tasks WHERE id IN (${taskIds.map(() => '?').join(',')})`
-  ).all(...taskIds);
-
-  for (const task of rows) {
-    const dueText = task.due_date ? ` (due ${task.due_date})` : '';
-    const title = task.source === 'classroom'
-      ? `New Classroom task: ${task.course_or_sender}`
-      : `Important email`;
-    const emoji = task.source === 'classroom' ? '📘' : '📧';
-    const message = `${emoji} ${task.title}${dueText}`;
-
-    await sendPush(user.ntfy_topic, title, message, task.link);
-
-    db.prepare('UPDATE tasks SET notified = 1 WHERE id = ?').run(task.id);
-  }
+  db.prepare(
+    `UPDATE tasks SET notified = 1 WHERE id IN (${taskIds.map(() => '?').join(',')})`
+  ).run(...taskIds);
 }
 
 // --- Entry point called by the scheduler -----------------------------------
