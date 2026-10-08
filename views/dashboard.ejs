@@ -84,6 +84,39 @@
       border-color: var(--accent);
     }
 
+    /* ---------- Sort / filter bar ---------- */
+    .filterbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    .filterbar label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .filterbar select {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 13px;
+      max-width: 200px;
+    }
+    .filterbar .reset { font-size: 12px; color: var(--accent); text-decoration: none; }
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      margin: 0 4px 6px 0;
+    }
+    .tag.subject { color: var(--accent); border-color: rgba(91,140,255,0.4); }
+
     /* ---------- Board (columns) ---------- */
     .board {
       display: grid;
@@ -234,6 +267,36 @@
     <% }); %>
   </div>
 
+  <!-- Sort + filter: plain GET form, no JS needed -->
+  <form class="filterbar" method="get" action="/dashboard">
+    <label>Sort by
+      <select name="sort" onchange="this.form.submit()">
+        <option value="due" <%= sort === 'due' ? 'selected' : '' %>>Due date</option>
+        <option value="subject" <%= sort === 'subject' ? 'selected' : '' %>>Subject</option>
+        <option value="faculty" <%= sort === 'faculty' ? 'selected' : '' %>>Faculty</option>
+      </select>
+    </label>
+    <label>Subject
+      <select name="subject" onchange="this.form.submit()">
+        <option value="">All subjects</option>
+        <% subjects.forEach(function(sub) { %>
+          <option value="<%= sub %>" <%= subjectFilter === sub ? 'selected' : '' %>><%= sub %></option>
+        <% }); %>
+      </select>
+    </label>
+    <label>Faculty
+      <select name="faculty" onchange="this.form.submit()">
+        <option value="">All faculty</option>
+        <% faculties.forEach(function(f) { %>
+          <option value="<%= f %>" <%= facultyFilter === f ? 'selected' : '' %>><%= f %></option>
+        <% }); %>
+      </select>
+    </label>
+    <% if (sort !== 'due' || subjectFilter || facultyFilter) { %>
+      <a class="reset" href="/dashboard">Reset</a>
+    <% } %>
+  </form>
+
   <div class="board">
     <% sections.forEach(function(section, i) { %>
       <div class="column <%= i === 0 ? 'active' : '' %>" id="col-<%= section.key %>">
@@ -273,8 +336,16 @@
                 <span class="due-pill none">No due date</span>
               <% } %>
 
+              <% if (task.subject || task.faculty) { %>
+                <div>
+                  <% if (task.subject) { %><span class="tag subject"><%= task.subject %></span><% } %>
+                  <% if (task.faculty) { %><span class="tag"><%= task.faculty %></span><% } %>
+                </div>
+              <% } %>
               <p class="card-title"><%= task.title %></p>
-              <div class="card-meta"><%= task.course_or_sender || '' %></div>
+              <% if (!task.subject && !task.faculty) { %>
+                <div class="card-meta"><%= task.course_or_sender || '' %></div>
+              <% } %>
 
               <% if (task.detail) { %>
                 <div class="card-detail"><%= task.detail %></div>

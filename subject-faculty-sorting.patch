@@ -1,0 +1,368 @@
+diff --git a/db.js b/db.js
+index fcbb38e..5053b79 100644
+--- a/db.js
++++ b/db.js
+@@ -62,6 +62,8 @@ db.exec(`
+     notified INTEGER DEFAULT 0,    -- have we already pushed a notification for this?
+     completed INTEGER DEFAULT 0,   -- user can mark done on the dashboard
+     category TEXT DEFAULT 'miscellaneous', -- 'notes' | 'assignments' | 'quizzes' | 'miscellaneous'
++    subject TEXT,                  -- course / subject name (used for subject-wise sorting)
++    faculty TEXT,                  -- teacher / sender name (used for faculty-wise sorting)
+     created_at TEXT DEFAULT CURRENT_TIMESTAMP
+   );
+ 
+@@ -81,4 +83,26 @@ try {
+   // Column already exists — fine, nothing to do.
+ }
+ 
++// Migration for the subject/faculty columns (added for subject-wise and
++// faculty-wise sorting). Same trick as above: ignore "duplicate column".
++for (const col of ['subject', 'faculty']) {
++  try {
++    db.exec(`ALTER TABLE tasks ADD COLUMN ${col} TEXT`);
++  } catch (e) {
++    // Column already exists — fine.
++  }
++}
++
++// Backfill old rows so they show up in the new sorting too.
++// Classroom rows: course_or_sender already holds the course name.
++db.exec(`UPDATE tasks SET subject = course_or_sender WHERE source = 'classroom' AND (subject IS NULL OR subject = '')`);
++// Gmail rows: course_or_sender holds the raw From header, e.g. 'Dr. Rao <rao@college.edu>'.
++// Strip the <email> part to get a readable name (falls back to the email itself).
++const gmailRows = db.prepare(`SELECT id, course_or_sender FROM tasks WHERE source = 'gmail' AND (faculty IS NULL OR faculty = '')`).all();
++for (const row of gmailRows) {
++  const from = row.course_or_sender || '';
++  const name = from.replace(/<[^>]*>/g, '').replace(/["']/g, '').trim() || from.trim();
++  db.prepare('UPDATE tasks SET faculty = ? WHERE id = ?').run(name || null, row.id);
++}
++
+ module.exports = db;
+diff --git a/googleAuth.js b/googleAuth.js
+index d65e73c..cbcaee7 100644
+--- a/googleAuth.js
++++ b/googleAuth.js
+@@ -8,6 +8,9 @@ const SCOPES = [
+   'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
+   'https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly',
+   'https://www.googleapis.com/auth/classroom.announcements.readonly',
++  // Needed to read teacher names (faculty) for each course:
++  'https://www.googleapis.com/auth/classroom.rosters.readonly',
++  'https://www.googleapis.com/auth/classroom.profile.emails',
+   'https://www.googleapis.com/auth/userinfo.email',
+ ];
+ 
+diff --git a/scanner.js b/scanner.js
+index dbbbf66..734a546 100644
+--- a/scanner.js
++++ b/scanner.js
+@@ -41,6 +41,43 @@ function extractPlainText(payload) {
+   return '';
+ }
+ 
++// Turn a raw From header ('Dr. Rao <rao@college.edu>') into a readable name.
++function senderName(from) {
++  const name = (from || '').replace(/<[^>]*>/g, '').replace(/["']/g, '').trim();
++  return name || (from || '').trim() || null;
++}
++
++// Look up the teacher(s) of a Classroom course. Needs the rosters + profile
++// scopes; if the user logged in before those were added, this quietly
++// returns null and the card just shows no faculty until they log in again.
++const facultyCache = new Map();
++async function getFacultyName(classroom, course) {
++  if (facultyCache.has(course.id)) return facultyCache.get(course.id);
++  let faculty = null;
++  try {
++    const res = await classroom.courses.teachers.list({ courseId: course.id });
++    const names = (res.data.teachers || [])
++      .map(t => t.profile && t.profile.name && t.profile.name.fullName)
++      .filter(Boolean);
++    if (names.length) faculty = names.join(', ');
++  } catch (e) {
++    console.warn(`Could not fetch teachers for ${course.name}:`, e.message);
++  }
++  facultyCache.set(course.id, faculty);
++  return faculty;
++}
++
++// Gmail has no "course" field, so try to match the email against the
++// subjects we already know from Classroom (e.g. 'Data Structures').
++function guessSubject(user, text) {
++  const known = db.prepare(
++    `SELECT DISTINCT subject FROM tasks WHERE user_id = ? AND source = 'classroom' AND subject IS NOT NULL AND subject != ''`
++  ).all(user.id);
++  const haystack = (text || '').toLowerCase();
++  const hit = known.find(k => haystack.includes(k.subject.toLowerCase()));
++  return hit ? hit.subject : null;
++}
++
+ // --- Gmail scanning ------------------------------------------------------
+ 
+ async function scanGmail(user) {
+@@ -86,8 +123,8 @@ async function scanGmail(user) {
+       const existing = db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(taskId);
+       if (!existing) {
+         db.prepare(`
+-          INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category)
+-          VALUES (?, ?, 'gmail', ?, ?, ?, ?, ?, 0, ?)
++          INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
++          VALUES (?, ?, 'gmail', ?, ?, ?, ?, ?, 0, ?, ?, ?)
+         `).run(
+           taskId,
+           user.id,
+@@ -96,7 +133,9 @@ async function scanGmail(user) {
+           result.dueDateText,
+           from,
+           `https://mail.google.com/mail/u/0/#inbox/${msgRef.id}`,
+-          result.category
++          result.category,
++          guessSubject(user, `${subject} ${bodyText}`),
++          senderName(from)
+         );
+         newTasks.push(taskId);
+       }
+@@ -118,6 +157,15 @@ async function scanClassroom(user) {
+   const courses = coursesRes.data.courses || [];
+ 
+   for (const course of courses) {
++    const faculty = await getFacultyName(classroom, course);
++
++    // Fill in faculty for rows saved before this feature existed.
++    if (faculty) {
++      db.prepare(
++        `UPDATE tasks SET faculty = ? WHERE user_id = ? AND source = 'classroom' AND subject = ? AND (faculty IS NULL OR faculty = '')`
++      ).run(faculty, user.id, course.name);
++    }
++
+     // --- 1. Coursework: assignments, quizzes, tests ---
+     // Previously this skipped anything without a due date. We now track
+     // everything — a due date just becomes optional metadata rather than
+@@ -155,8 +203,8 @@ async function scanClassroom(user) {
+       }
+ 
+       db.prepare(`
+-        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category)
+-        VALUES (?, ?, 'classroom', ?, ?, ?, ?, ?, 0, ?)
++        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
++        VALUES (?, ?, 'classroom', ?, ?, ?, ?, ?, 0, ?, ?, ?)
+       `).run(
+         taskId,
+         user.id,
+@@ -165,7 +213,9 @@ async function scanClassroom(user) {
+         dueDate,
+         course.name,
+         work.alternateLink || '',
+-        category
++        category,
++        course.name,
++        faculty
+       );
+       newTasks.push(taskId);
+     }
+@@ -187,15 +237,17 @@ async function scanClassroom(user) {
+       if (existing) continue;
+ 
+       db.prepare(`
+-        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category)
+-        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, 'notes')
++        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
++        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, 'notes', ?, ?)
+       `).run(
+         taskId,
+         user.id,
+         mat.title ? `New material: ${mat.title}` : 'New material posted',
+         mat.description ? mat.description.slice(0, 300) : '',
+         course.name,
+-        mat.alternateLink || ''
++        mat.alternateLink || '',
++        course.name,
++        faculty
+       );
+       newTasks.push(taskId);
+     }
+@@ -224,8 +276,8 @@ async function scanClassroom(user) {
+       const category = categorize(text);
+ 
+       db.prepare(`
+-        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category)
+-        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, ?)
++        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
++        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, ?, ?, ?)
+       `).run(
+         taskId,
+         user.id,
+@@ -233,7 +285,9 @@ async function scanClassroom(user) {
+         text.slice(0, 300),
+         course.name,
+         ann.alternateLink || '',
+-        category
++        category,
++        course.name,
++        faculty
+       );
+       newTasks.push(taskId);
+     }
+diff --git a/server.js b/server.js
+index 3cbc53d..8104181 100644
+--- a/server.js
++++ b/server.js
+@@ -106,7 +106,14 @@ const CATEGORY_SECTIONS = [
+ 
+ app.get('/dashboard', requireLogin, (req, res) => {
+   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
+-  const tasks = db.prepare(`
++
++  // Sorting / filtering options come from the query string, e.g.
++  //   /dashboard?sort=subject&faculty=Dr.%20Rao
++  const sort = ['due', 'subject', 'faculty'].includes(req.query.sort) ? req.query.sort : 'due';
++  const subjectFilter = (req.query.subject || '').trim();
++  const facultyFilter = (req.query.faculty || '').trim();
++
++  const allTasks = db.prepare(`
+     SELECT * FROM tasks WHERE user_id = ? AND completed = 0
+     ORDER BY
+       CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
+@@ -114,6 +121,31 @@ app.get('/dashboard', requireLogin, (req, res) => {
+       created_at DESC
+   `).all(user.id);
+ 
++  // Dropdown options come from ALL pending tasks (not the filtered set),
++  // so you can always switch to a different subject/faculty.
++  const uniq = key => [...new Set(allTasks.map(t => t[key]).filter(Boolean))]
++    .sort((a, b) => a.localeCompare(b));
++  const subjects = uniq('subject');
++  const faculties = uniq('faculty');
++
++  let tasks = allTasks.filter(t =>
++    (!subjectFilter || t.subject === subjectFilter) &&
++    (!facultyFilter || t.faculty === facultyFilter)
++  );
++
++  // Sort within each column. Array.sort is stable, so the due-date order
++  // from SQL is kept inside each subject / faculty group.
++  // Tasks with no subject/faculty go last.
++  if (sort === 'subject' || sort === 'faculty') {
++    tasks = tasks.slice().sort((a, b) => {
++      const x = a[sort], y = b[sort];
++      if (!x && !y) return 0;
++      if (!x) return 1;
++      if (!y) return -1;
++      return x.localeCompare(y);
++    });
++  }
++
+   // Group into sections. Anything with a missing/unrecognized category
+   // (e.g. rows from before this feature existed) falls back to miscellaneous.
+   const sections = CATEGORY_SECTIONS.map(section => ({
+@@ -121,7 +153,10 @@ app.get('/dashboard', requireLogin, (req, res) => {
+     tasks: tasks.filter(t => (t.category || 'miscellaneous') === section.key),
+   }));
+ 
+-  res.render('dashboard', { user, tasks, sections });
++  res.render('dashboard', {
++    user, tasks, sections,
++    sort, subjectFilter, facultyFilter, subjects, faculties,
++  });
+ });
+ 
+ // --- API routes (used by the dashboard's JS) ------------------------------
+diff --git a/views/dashboard.ejs b/views/dashboard.ejs
+index ae4a9bb..5de1b6f 100644
+--- a/views/dashboard.ejs
++++ b/views/dashboard.ejs
+@@ -84,6 +84,39 @@
+       border-color: var(--accent);
+     }
+ 
++    /* ---------- Sort / filter bar ---------- */
++    .filterbar {
++      display: flex;
++      flex-wrap: wrap;
++      gap: 10px;
++      align-items: center;
++      padding: 10px 16px;
++      background: var(--panel);
++      border-bottom: 1px solid var(--border);
++    }
++    .filterbar label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
++    .filterbar select {
++      background: var(--panel-2);
++      color: var(--text);
++      border: 1px solid var(--border);
++      border-radius: 8px;
++      padding: 6px 10px;
++      font-size: 13px;
++      max-width: 200px;
++    }
++    .filterbar .reset { font-size: 12px; color: var(--accent); text-decoration: none; }
++    .tag {
++      display: inline-block;
++      font-size: 11px;
++      padding: 2px 8px;
++      border-radius: 999px;
++      background: var(--panel);
++      color: var(--muted);
++      border: 1px solid var(--border);
++      margin: 0 4px 6px 0;
++    }
++    .tag.subject { color: var(--accent); border-color: rgba(91,140,255,0.4); }
++
+     /* ---------- Board (columns) ---------- */
+     .board {
+       display: grid;
+@@ -234,6 +267,36 @@
+     <% }); %>
+   </div>
+ 
++  <!-- Sort + filter: plain GET form, no JS needed -->
++  <form class="filterbar" method="get" action="/dashboard">
++    <label>Sort by
++      <select name="sort" onchange="this.form.submit()">
++        <option value="due" <%= sort === 'due' ? 'selected' : '' %>>Due date</option>
++        <option value="subject" <%= sort === 'subject' ? 'selected' : '' %>>Subject</option>
++        <option value="faculty" <%= sort === 'faculty' ? 'selected' : '' %>>Faculty</option>
++      </select>
++    </label>
++    <label>Subject
++      <select name="subject" onchange="this.form.submit()">
++        <option value="">All subjects</option>
++        <% subjects.forEach(function(sub) { %>
++          <option value="<%= sub %>" <%= subjectFilter === sub ? 'selected' : '' %>><%= sub %></option>
++        <% }); %>
++      </select>
++    </label>
++    <label>Faculty
++      <select name="faculty" onchange="this.form.submit()">
++        <option value="">All faculty</option>
++        <% faculties.forEach(function(f) { %>
++          <option value="<%= f %>" <%= facultyFilter === f ? 'selected' : '' %>><%= f %></option>
++        <% }); %>
++      </select>
++    </label>
++    <% if (sort !== 'due' || subjectFilter || facultyFilter) { %>
++      <a class="reset" href="/dashboard">Reset</a>
++    <% } %>
++  </form>
++
+   <div class="board">
+     <% sections.forEach(function(section, i) { %>
+       <div class="column <%= i === 0 ? 'active' : '' %>" id="col-<%= section.key %>">
+@@ -273,8 +336,16 @@
+                 <span class="due-pill none">No due date</span>
+               <% } %>
+ 
++              <% if (task.subject || task.faculty) { %>
++                <div>
++                  <% if (task.subject) { %><span class="tag subject"><%= task.subject %></span><% } %>
++                  <% if (task.faculty) { %><span class="tag"><%= task.faculty %></span><% } %>
++                </div>
++              <% } %>
+               <p class="card-title"><%= task.title %></p>
+-              <div class="card-meta"><%= task.course_or_sender || '' %></div>
++              <% if (!task.subject && !task.faculty) { %>
++                <div class="card-meta"><%= task.course_or_sender || '' %></div>
++              <% } %>
+ 
+               <% if (task.detail) { %>
+                 <div class="card-detail"><%= task.detail %></div>

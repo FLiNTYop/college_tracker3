@@ -106,13 +106,45 @@ const CATEGORY_SECTIONS = [
 
 app.get('/dashboard', requireLogin, (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
-  const tasks = db.prepare(`
+
+  // Sorting / filtering options come from the query string, e.g.
+  //   /dashboard?sort=subject&faculty=Dr.%20Rao
+  const sort = ['due', 'subject', 'faculty'].includes(req.query.sort) ? req.query.sort : 'due';
+  const subjectFilter = (req.query.subject || '').trim();
+  const facultyFilter = (req.query.faculty || '').trim();
+
+  const allTasks = db.prepare(`
     SELECT * FROM tasks WHERE user_id = ? AND completed = 0
     ORDER BY
       CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
       due_date ASC,
       created_at DESC
   `).all(user.id);
+
+  // Dropdown options come from ALL pending tasks (not the filtered set),
+  // so you can always switch to a different subject/faculty.
+  const uniq = key => [...new Set(allTasks.map(t => t[key]).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  const subjects = uniq('subject');
+  const faculties = uniq('faculty');
+
+  let tasks = allTasks.filter(t =>
+    (!subjectFilter || t.subject === subjectFilter) &&
+    (!facultyFilter || t.faculty === facultyFilter)
+  );
+
+  // Sort within each column. Array.sort is stable, so the due-date order
+  // from SQL is kept inside each subject / faculty group.
+  // Tasks with no subject/faculty go last.
+  if (sort === 'subject' || sort === 'faculty') {
+    tasks = tasks.slice().sort((a, b) => {
+      const x = a[sort], y = b[sort];
+      if (!x && !y) return 0;
+      if (!x) return 1;
+      if (!y) return -1;
+      return x.localeCompare(y);
+    });
+  }
 
   // Group into sections. Anything with a missing/unrecognized category
   // (e.g. rows from before this feature existed) falls back to miscellaneous.
@@ -121,7 +153,10 @@ app.get('/dashboard', requireLogin, (req, res) => {
     tasks: tasks.filter(t => (t.category || 'miscellaneous') === section.key),
   }));
 
-  res.render('dashboard', { user, tasks, sections });
+  res.render('dashboard', {
+    user, tasks, sections,
+    sort, subjectFilter, facultyFilter, subjects, faculties,
+  });
 });
 
 // --- API routes (used by the dashboard's JS) ------------------------------

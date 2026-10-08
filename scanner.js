@@ -41,6 +41,43 @@ function extractPlainText(payload) {
   return '';
 }
 
+// Turn a raw From header ('Dr. Rao <rao@college.edu>') into a readable name.
+function senderName(from) {
+  const name = (from || '').replace(/<[^>]*>/g, '').replace(/["']/g, '').trim();
+  return name || (from || '').trim() || null;
+}
+
+// Look up the teacher(s) of a Classroom course. Needs the rosters + profile
+// scopes; if the user logged in before those were added, this quietly
+// returns null and the card just shows no faculty until they log in again.
+const facultyCache = new Map();
+async function getFacultyName(classroom, course) {
+  if (facultyCache.has(course.id)) return facultyCache.get(course.id);
+  let faculty = null;
+  try {
+    const res = await classroom.courses.teachers.list({ courseId: course.id });
+    const names = (res.data.teachers || [])
+      .map(t => t.profile && t.profile.name && t.profile.name.fullName)
+      .filter(Boolean);
+    if (names.length) faculty = names.join(', ');
+  } catch (e) {
+    console.warn(`Could not fetch teachers for ${course.name}:`, e.message);
+  }
+  facultyCache.set(course.id, faculty);
+  return faculty;
+}
+
+// Gmail has no "course" field, so try to match the email against the
+// subjects we already know from Classroom (e.g. 'Data Structures').
+function guessSubject(user, text) {
+  const known = db.prepare(
+    `SELECT DISTINCT subject FROM tasks WHERE user_id = ? AND source = 'classroom' AND subject IS NOT NULL AND subject != ''`
+  ).all(user.id);
+  const haystack = (text || '').toLowerCase();
+  const hit = known.find(k => haystack.includes(k.subject.toLowerCase()));
+  return hit ? hit.subject : null;
+}
+
 // --- Gmail scanning ------------------------------------------------------
 
 async function scanGmail(user) {
@@ -86,8 +123,8 @@ async function scanGmail(user) {
       const existing = db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(taskId);
       if (!existing) {
         db.prepare(`
-          INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category)
-          VALUES (?, ?, 'gmail', ?, ?, ?, ?, ?, 0, ?)
+          INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
+          VALUES (?, ?, 'gmail', ?, ?, ?, ?, ?, 0, ?, ?, ?)
         `).run(
           taskId,
           user.id,
@@ -96,7 +133,9 @@ async function scanGmail(user) {
           result.dueDateText,
           from,
           `https://mail.google.com/mail/u/0/#inbox/${msgRef.id}`,
-          result.category
+          result.category,
+          guessSubject(user, `${subject} ${bodyText}`),
+          senderName(from)
         );
         newTasks.push(taskId);
       }
@@ -118,6 +157,15 @@ async function scanClassroom(user) {
   const courses = coursesRes.data.courses || [];
 
   for (const course of courses) {
+    const faculty = await getFacultyName(classroom, course);
+
+    // Fill in faculty for rows saved before this feature existed.
+    if (faculty) {
+      db.prepare(
+        `UPDATE tasks SET faculty = ? WHERE user_id = ? AND source = 'classroom' AND subject = ? AND (faculty IS NULL OR faculty = '')`
+      ).run(faculty, user.id, course.name);
+    }
+
     // --- 1. Coursework: assignments, quizzes, tests ---
     // Previously this skipped anything without a due date. We now track
     // everything — a due date just becomes optional metadata rather than
@@ -155,8 +203,8 @@ async function scanClassroom(user) {
       }
 
       db.prepare(`
-        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category)
-        VALUES (?, ?, 'classroom', ?, ?, ?, ?, ?, 0, ?)
+        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
+        VALUES (?, ?, 'classroom', ?, ?, ?, ?, ?, 0, ?, ?, ?)
       `).run(
         taskId,
         user.id,
@@ -165,7 +213,9 @@ async function scanClassroom(user) {
         dueDate,
         course.name,
         work.alternateLink || '',
-        category
+        category,
+        course.name,
+        faculty
       );
       newTasks.push(taskId);
     }
@@ -187,15 +237,17 @@ async function scanClassroom(user) {
       if (existing) continue;
 
       db.prepare(`
-        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category)
-        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, 'notes')
+        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
+        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, 'notes', ?, ?)
       `).run(
         taskId,
         user.id,
         mat.title ? `New material: ${mat.title}` : 'New material posted',
         mat.description ? mat.description.slice(0, 300) : '',
         course.name,
-        mat.alternateLink || ''
+        mat.alternateLink || '',
+        course.name,
+        faculty
       );
       newTasks.push(taskId);
     }
@@ -224,8 +276,8 @@ async function scanClassroom(user) {
       const category = categorize(text);
 
       db.prepare(`
-        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category)
-        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, ?)
+        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
+        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, ?, ?, ?)
       `).run(
         taskId,
         user.id,
@@ -233,7 +285,9 @@ async function scanClassroom(user) {
         text.slice(0, 300),
         course.name,
         ann.alternateLink || '',
-        category
+        category,
+        course.name,
+        faculty
       );
       newTasks.push(taskId);
     }

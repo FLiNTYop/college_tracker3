@@ -62,6 +62,8 @@ db.exec(`
     notified INTEGER DEFAULT 0,    -- have we already pushed a notification for this?
     completed INTEGER DEFAULT 0,   -- user can mark done on the dashboard
     category TEXT DEFAULT 'miscellaneous', -- 'notes' | 'assignments' | 'quizzes' | 'miscellaneous'
+    subject TEXT,                  -- course / subject name (used for subject-wise sorting)
+    faculty TEXT,                  -- teacher / sender name (used for faculty-wise sorting)
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -79,6 +81,28 @@ try {
   db.exec(`ALTER TABLE tasks ADD COLUMN category TEXT DEFAULT 'miscellaneous'`);
 } catch (e) {
   // Column already exists — fine, nothing to do.
+}
+
+// Migration for the subject/faculty columns (added for subject-wise and
+// faculty-wise sorting). Same trick as above: ignore "duplicate column".
+for (const col of ['subject', 'faculty']) {
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN ${col} TEXT`);
+  } catch (e) {
+    // Column already exists — fine.
+  }
+}
+
+// Backfill old rows so they show up in the new sorting too.
+// Classroom rows: course_or_sender already holds the course name.
+db.exec(`UPDATE tasks SET subject = course_or_sender WHERE source = 'classroom' AND (subject IS NULL OR subject = '')`);
+// Gmail rows: course_or_sender holds the raw From header, e.g. 'Dr. Rao <rao@college.edu>'.
+// Strip the <email> part to get a readable name (falls back to the email itself).
+const gmailRows = db.prepare(`SELECT id, course_or_sender FROM tasks WHERE source = 'gmail' AND (faculty IS NULL OR faculty = '')`).all();
+for (const row of gmailRows) {
+  const from = row.course_or_sender || '';
+  const name = from.replace(/<[^>]*>/g, '').replace(/["']/g, '').trim() || from.trim();
+  db.prepare('UPDATE tasks SET faculty = ? WHERE id = ?').run(name || null, row.id);
 }
 
 module.exports = db;
