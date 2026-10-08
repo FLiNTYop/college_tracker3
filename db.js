@@ -64,7 +64,6 @@ db.exec(`
     category TEXT DEFAULT 'miscellaneous', -- 'notes' | 'assignments' | 'quizzes' | 'miscellaneous'
     subject TEXT,                  -- course / subject name (used for subject-wise sorting)
     faculty TEXT,                  -- teacher / sender name (used for faculty-wise sorting)
-    posted_date TEXT,              -- when the note/assignment was posted (ISO timestamp) — used for notes on the calendar
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -86,18 +85,13 @@ try {
 
 // Migration for the subject/faculty columns (added for subject-wise and
 // faculty-wise sorting). Same trick as above: ignore "duplicate column".
-for (const col of ['subject', 'faculty', 'posted_date']) {
+for (const col of ['subject', 'faculty']) {
   try {
     db.exec(`ALTER TABLE tasks ADD COLUMN ${col} TEXT`);
   } catch (e) {
     // Column already exists — fine.
   }
 }
-
-// Older versions of classifier.js saved the singular 'assignment' / 'quiz'
-// while the dashboard and calendar expect 'assignments' / 'quizzes'.
-db.exec(`UPDATE tasks SET category = 'assignments' WHERE category = 'assignment'`);
-db.exec(`UPDATE tasks SET category = 'quizzes' WHERE category = 'quiz'`);
 
 // Backfill old rows so they show up in the new sorting too.
 // Classroom rows: course_or_sender already holds the course name.

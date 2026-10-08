@@ -22,12 +22,12 @@ const NOISE_KEYWORDS = [
 // Checked in this order — first match wins — because a title like
 // "Quiz 2 submission" should land under Quizzes, not Assignments.
 const CATEGORY_KEYWORDS = {
-  quizzes: [
+  quiz: [
     'quiz', 'exam', 'test', 'midterm', 'mid-term', 'final exam',
     'viva', 'mcq', 'multiple choice', 'class test', 'assessment',
     'evaluation', 'online test',
   ],
-  assignments: [
+  assignment: [
     'assignment', 'homework', 'submit', 'submission', 'due', 'deadline',
     'project', 'report', 'presentation', 'lab', 'upload your',
     'internal assessment', 'coursework',
@@ -61,52 +61,6 @@ const DATE_PATTERNS = [
   /\b(due|deadline|submit(?:ted)? by|before|by)\s*(on)?\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)/i,
   /\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s*\d{0,4})/i,
 ];
-
-const MONTH_RE = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
-const MONTH_INDEX = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-
-/**
- * Turn the loose date text found in an email ("5th July", "12/08/2026",
- * "3 oct 26") into an ISO date ("2026-07-05") so it can be placed on the
- * calendar. Numeric dates are read day-first (12/08 = 12 August).
- * When the year is missing we assume the current year, or next year if that
- * would put the date more than ~3 months in the past.
- * Returns null if the text can't be understood.
- */
-function parseDueDate(text, now = new Date()) {
-  if (!text) return null;
-  const s = String(text).toLowerCase().trim();
-  let day, month, year;
-
-  let m = s.match(new RegExp(`^(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH_RE}\\b\\.?,?\\s*(\\d{2,4})?`));
-  if (m) {
-    day = +m[1];
-    month = MONTH_INDEX.indexOf(m[2].slice(0, 3)) + 1;
-    year = m[3];
-  } else {
-    m = s.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
-    if (!m) return null;
-    day = +m[1];
-    month = +m[2];
-    year = m[3];
-  }
-
-  if (year) {
-    year = +year;
-    if (year < 100) year += 2000;
-  } else {
-    year = now.getFullYear();
-    const guess = new Date(Date.UTC(year, month - 1, day));
-    if (guess < now.getTime() - 90 * 86400000) year += 1;
-  }
-
-  // Reject impossible dates like 31/02
-  const dt = new Date(Date.UTC(year, month - 1, day));
-  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
-    return null;
-  }
-  return dt.toISOString().slice(0, 10);
-}
 
 function extractDueDateText(text) {
   for (const pattern of DATE_PATTERNS) {
@@ -154,17 +108,14 @@ function classifyEmail(subject, bodyText, fromAddress, trustedDomains = []) {
 
   const important = score >= 2; // tweakable threshold
 
-  const dueDateText = extractDueDateText(haystack);
-
   return {
     important,
     reason: matchedKeywords.length
       ? `matched: ${matchedKeywords.join(', ')}`
       : 'no strong signals',
-    dueDateText,
-    dueDate: parseDueDate(dueDateText), // ISO date or null — used by the calendar
+    dueDateText: extractDueDateText(haystack),
     category: categorize(haystack),
   };
 }
 
-module.exports = { classifyEmail, extractDueDateText, parseDueDate, categorize };
+module.exports = { classifyEmail, extractDueDateText, categorize };
