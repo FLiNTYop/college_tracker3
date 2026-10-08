@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>College Tracker — Calendar</title>
+  <style>
+    :root { --bg:#0f1115; --panel:#171a21; --panel-2:#1e222b; --border:#2a2f3a;
+            --text:#e8eaed; --muted:#9aa1ac; --accent:#5b8cff; --red:#ff5c5c; --amber:#ffb020; --green:#3ecf8e; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); }
+    .topbar { display:flex; justify-content:space-between; align-items:center; padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--border); }
+    .topbar h1 { font-size:18px; margin:0; }
+    .btn { background:transparent; border:1px solid var(--border); color:var(--text); padding:8px 14px; border-radius:8px; font-size:13px; cursor:pointer; text-decoration:none; }
+    .wrap { display:grid; grid-template-columns:2fr 1fr; gap:16px; padding:16px 20px; }
+    @media (max-width:800px){ .wrap{ grid-template-columns:1fr; } }
+    .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; }
+    .cal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .cal-head h2 { margin:0; font-size:16px; }
+    .grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+    .dow { color:var(--muted); font-size:11px; text-align:center; padding:4px 0; }
+    .day { background:var(--panel-2); border-radius:8px; min-height:78px; padding:4px; font-size:11px; overflow:hidden; }
+    .day.empty { background:transparent; }
+    .day.today { outline:2px solid var(--accent); }
+    .day .n { color:var(--muted); margin-bottom:2px; }
+    .chip { display:block; background:var(--accent); color:#fff; border-radius:4px; padding:1px 4px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; }
+    .chip.soon { background:var(--amber); color:#000; }
+    .chip.overdue { background:var(--red); }
+    .chip.done { background:var(--border); color:var(--muted); text-decoration:line-through; }
+    .tl h3 { margin:14px 0 6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+    .item { display:flex; justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid var(--border); font-size:13px; }
+    .item small { color:var(--muted); display:block; }
+    .item .when { white-space:nowrap; color:var(--muted); font-size:12px; text-align:right; }
+    .item.overdue .when { color:var(--red); }
+    .item.soon .when { color:var(--amber); }
+    .item a { color:var(--text); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>Calendar</h1>
+    <a class="btn" href="/dashboard">← Dashboard</a>
+  </div>
+
+  <div class="wrap">
+    <div class="panel">
+      <div class="cal-head">
+        <button class="btn" id="prev">‹</button>
+        <h2 id="monthLabel"></h2>
+        <button class="btn" id="next">›</button>
+      </div>
+      <div class="grid" id="grid"></div>
+    </div>
+    <div class="panel tl" id="timeline"></div>
+  </div>
+
+  <script>
+    const tasks = <%- JSON.stringify(tasks).replace(/</g, '\\u003c') %>;
+
+    const pad = n => String(n).padStart(2, '0');
+    const key = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const todayKey = key(today);
+    const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+    // Group tasks by date (first 10 chars of the ISO string = YYYY-MM-DD)
+    const byDay = {};
+    tasks.forEach(t => (byDay[t.due_date.slice(0, 10)] ||= []).push(t));
+
+    function status(t) {
+      if (t.completed) return 'done';
+      const d = t.due_date.slice(0, 10);
+      if (d < todayKey) return 'overdue';
+      const diff = (new Date(d + 'T00:00:00') - today) / 86400000;
+      return diff <= 2 ? 'soon' : '';
+    }
+
+    let view = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    function renderMonth() {
+      document.getElementById('monthLabel').textContent =
+        view.toLocaleString('default', { month: 'long', year: 'numeric' });
+      let html = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => `<div class="dow">${d}</div>`).join('');
+      const first = view.getDay();
+      const days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+      for (let i = 0; i < first; i++) html += '<div class="day empty"></div>';
+      for (let d = 1; d <= days; d++) {
+        const k = `${view.getFullYear()}-${pad(view.getMonth() + 1)}-${pad(d)}`;
+        const chips = (byDay[k] || []).map(t =>
+          `<a class="chip ${status(t)}" title="${esc(t.title)}" ${t.link ? `href="${esc(t.link)}" target="_blank" rel="noopener"` : ''}>${esc(t.title)}</a>`
+        ).join('');
+        html += `<div class="day ${k === todayKey ? 'today' : ''}"><div class="n">${d}</div>${chips}</div>`;
+      }
+      document.getElementById('grid').innerHTML = html;
+    }
+
+    function renderTimeline() {
+      const pending = tasks.filter(t => !t.completed);
+      const overdue = pending.filter(t => t.due_date.slice(0, 10) < todayKey);
+      const upcoming = pending.filter(t => t.due_date.slice(0, 10) >= todayKey);
+      const row = t => {
+        const d = new Date(t.due_date.slice(0, 10) + 'T00:00:00');
+        const diff = Math.round((d - today) / 86400000);
+        const rel = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : diff < 0 ? `${-diff}d overdue` : `in ${diff}d`;
+        return `<div class="item ${status(t)}">
+          <div>${t.link ? `<a href="${esc(t.link)}" target="_blank" rel="noopener">${esc(t.title)}</a>` : esc(t.title)}
+            <small>${esc(t.subject || t.category || '')}</small></div>
+          <div class="when">${d.toLocaleDateString('default', { month: 'short', day: 'numeric' })}<br>${rel}</div>
+        </div>`;
+      };
+      let html = '';
+      if (overdue.length) html += `<h3>Overdue</h3>${overdue.map(row).join('')}`;
+      html += `<h3>Upcoming</h3>${upcoming.map(row).join('') || '<small style="color:var(--muted)">Nothing due 🎉</small>'}`;
+      document.getElementById('timeline').innerHTML = html;
+    }
+
+    document.getElementById('prev').onclick = () => { view.setMonth(view.getMonth() - 1); renderMonth(); };
+    document.getElementById('next').onclick = () => { view.setMonth(view.getMonth() + 1); renderMonth(); };
+    renderMonth(); renderTimeline();
+  </script>
+</body>
+</html>

@@ -159,6 +159,17 @@ app.get('/dashboard', requireLogin, (req, res) => {
   });
 });
 
+// Calendar page: month grid + upcoming timeline of due dates
+app.get('/calendar', requireLogin, (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
+  const tasks = db.prepare(`
+    SELECT id, title, due_date, subject, category, completed, link
+    FROM tasks WHERE user_id = ? AND due_date IS NOT NULL AND due_date != ''
+    ORDER BY due_date ASC
+  `).all(user.id);
+  res.render('calendar', { user, tasks });
+});
+
 // --- API routes (used by the dashboard's JS) ------------------------------
 
 app.post('/api/scan-now', requireLogin, async (req, res) => {
