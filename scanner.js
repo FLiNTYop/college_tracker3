@@ -78,6 +78,15 @@ function guessSubject(user, text) {
   return hit ? hit.subject : null;
 }
 
+// Save the real "posted on" time for rows that were stored before the
+// calendar feature existed (the scanner otherwise skips rows it already has).
+function backfillPosted(taskId, timestamp) {
+  if (!timestamp) return;
+  db.prepare(
+    `UPDATE tasks SET posted_date = ? WHERE id = ? AND (posted_date IS NULL OR posted_date = '')`
+  ).run(timestamp, taskId);
+}
+
 // --- Gmail scanning ------------------------------------------------------
 
 async function scanGmail(user) {
@@ -123,19 +132,22 @@ async function scanGmail(user) {
       const existing = db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(taskId);
       if (!existing) {
         db.prepare(`
-          INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
-          VALUES (?, ?, 'gmail', ?, ?, ?, ?, ?, 0, ?, ?, ?)
+          INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty, posted_date)
+          VALUES (?, ?, 'gmail', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
         `).run(
           taskId,
           user.id,
           subject || '(no subject)',
           bodyText.slice(0, 300),
-          result.dueDateText,
+          result.dueDate, // ISO date (or null) so the calendar can place it
           from,
           `https://mail.google.com/mail/u/0/#inbox/${msgRef.id}`,
           result.category,
           guessSubject(user, `${subject} ${bodyText}`),
-          senderName(from)
+          senderName(from),
+          full.data.internalDate
+            ? new Date(Number(full.data.internalDate)).toISOString()
+            : new Date().toISOString()
         );
         newTasks.push(taskId);
       }
@@ -181,7 +193,7 @@ async function scanClassroom(user) {
     for (const work of courseWork) {
       const taskId = `classroom_work_${work.id}`;
       const existing = db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(taskId);
-      if (existing) continue;
+      if (existing) { backfillPosted(taskId, work.creationTime); continue; }
 
       let dueDate = null;
       if (work.dueDate) {
@@ -203,8 +215,8 @@ async function scanClassroom(user) {
       }
 
       db.prepare(`
-        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
-        VALUES (?, ?, 'classroom', ?, ?, ?, ?, ?, 0, ?, ?, ?)
+        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty, posted_date)
+        VALUES (?, ?, 'classroom', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
       `).run(
         taskId,
         user.id,
@@ -215,7 +227,8 @@ async function scanClassroom(user) {
         work.alternateLink || '',
         category,
         course.name,
-        faculty
+        faculty,
+        work.creationTime || null
       );
       newTasks.push(taskId);
     }
@@ -234,11 +247,11 @@ async function scanClassroom(user) {
     for (const mat of materials) {
       const taskId = `classroom_material_${mat.id}`;
       const existing = db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(taskId);
-      if (existing) continue;
+      if (existing) { backfillPosted(taskId, mat.creationTime); continue; }
 
       db.prepare(`
-        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
-        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, 'notes', ?, ?)
+        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty, posted_date)
+        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, 'notes', ?, ?, ?)
       `).run(
         taskId,
         user.id,
@@ -247,7 +260,8 @@ async function scanClassroom(user) {
         course.name,
         mat.alternateLink || '',
         course.name,
-        faculty
+        faculty,
+        mat.creationTime || null
       );
       newTasks.push(taskId);
     }
@@ -264,7 +278,7 @@ async function scanClassroom(user) {
     for (const ann of announcements) {
       const taskId = `classroom_announcement_${ann.id}`;
       const existing = db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(taskId);
-      if (existing) continue;
+      if (existing) { backfillPosted(taskId, ann.creationTime); continue; }
 
       const text = ann.text || '';
       // Skip announcements that are clearly trivial/empty to reduce noise
@@ -276,8 +290,8 @@ async function scanClassroom(user) {
       const category = categorize(text);
 
       db.prepare(`
-        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty)
-        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, ?, ?, ?)
+        INSERT INTO tasks (id, user_id, source, title, detail, due_date, course_or_sender, link, notified, category, subject, faculty, posted_date)
+        VALUES (?, ?, 'classroom', ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)
       `).run(
         taskId,
         user.id,
@@ -287,7 +301,8 @@ async function scanClassroom(user) {
         ann.alternateLink || '',
         category,
         course.name,
-        faculty
+        faculty,
+        ann.creationTime || null
       );
       newTasks.push(taskId);
     }

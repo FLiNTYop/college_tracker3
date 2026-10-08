@@ -159,14 +159,33 @@ app.get('/dashboard', requireLogin, (req, res) => {
   });
 });
 
-// Calendar page: month grid + upcoming timeline of due dates
+// Calendar page: month grid + side timeline.
+//  - assignments / quizzes appear on their due date
+//  - notes appear on the day they were posted
+// The browser decides which date each item lands on (so "posted" times are
+// shown in the viewer's own timezone) — we just send both dates.
 app.get('/calendar', requireLogin, (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
-  const tasks = db.prepare(`
-    SELECT id, title, due_date, subject, category, completed, link
-    FROM tasks WHERE user_id = ? AND due_date IS NOT NULL AND due_date != ''
-    ORDER BY due_date ASC
+  const rows = db.prepare(`
+    SELECT id, title, due_date, posted_date, created_at, subject, category, completed, link
+    FROM tasks WHERE user_id = ?
+    ORDER BY created_at DESC
   `).all(user.id);
+
+  const ISO_DAY = /^\d{4}-\d{2}-\d{2}/;
+  const tasks = rows.map(r => ({
+    id: r.id,
+    title: r.title,
+    subject: r.subject,
+    category: r.category || 'miscellaneous',
+    completed: !!r.completed,
+    link: r.link,
+    // Only trust real ISO dates (older Gmail rows stored loose text like "5th July")
+    due: ISO_DAY.test(r.due_date || '') ? r.due_date.slice(0, 10) : null,
+    // Fall back to when we first saw it (SQLite stores that in UTC)
+    posted: r.posted_date || (r.created_at ? r.created_at.replace(' ', 'T') + 'Z' : null),
+  }));
+
   res.render('calendar', { user, tasks });
 });
 
