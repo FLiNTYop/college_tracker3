@@ -1,0 +1,20 @@
+/* Custom Dark Theme Scrollbars and Micro-Glow Accents */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0f131c;
+}
+::-webkit-scrollbar-thumb {
+  background: #262d3d;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3b2569;
+}
+
+/* Glass & Neon Accents */
+.glow-primary {
+  box-shadow: 0 0 20px -3px rgba(139, 92, 246, 0.25);
+}

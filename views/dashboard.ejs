@@ -1,414 +1,195 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>College Tracker — Dashboard</title>
-  <style>
-    :root {
-      --bg: #0f1115;
-      --panel: #171a21;
-      --panel-2: #1e222b;
-      --border: #2a2f3a;
-      --text: #e8eaed;
-      --muted: #9aa1ac;
-      --accent: #5b8cff;
-      --red: #ff5c5c;
-      --amber: #ffb020;
-      --green: #3ecf8e;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
+<%- include('partials/header', { title: 'Dashboard - College Tracker', activeTab: 'dashboard', user: user }) %>
 
-    /* ---------- Top bar ---------- */
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 20px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    .topbar h1 { font-size: 18px; margin: 0; }
-    .topbar .who { color: var(--muted); font-size: 13px; margin-top: 2px; }
-    .topbar-actions { display: flex; gap: 8px; align-items: center; }
-    .btn {
-      background: var(--accent);
-      color: white;
-      border: none;
-      padding: 8px 14px;
-      border-radius: 8px;
-      font-size: 13px;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-block;
-    }
-    .btn.secondary {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text);
-    }
-    .btn:active { transform: scale(0.97); }
-
-    /* ---------- Mobile tab switcher (hidden on desktop) ---------- */
-    .tabbar {
-      display: none;
-      overflow-x: auto;
-      gap: 6px;
-      padding: 10px 12px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-    }
-    .tabbar button {
-      flex: 0 0 auto;
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      padding: 8px 14px;
-      border-radius: 20px;
-      font-size: 13px;
-      white-space: nowrap;
-      cursor: pointer;
-    }
-    .tabbar button.active {
-      background: var(--accent);
-      color: white;
-      border-color: var(--accent);
-    }
-
-    /* ---------- Sort / filter bar ---------- */
-    .filterbar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-      padding: 10px 16px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-    }
-    .filterbar label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-    .filterbar select {
-      background: var(--panel-2);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 6px 10px;
-      font-size: 13px;
-      max-width: 200px;
-    }
-    .filterbar .reset { font-size: 12px; color: var(--accent); text-decoration: none; }
-    .tag {
-      display: inline-block;
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 999px;
-      background: var(--panel);
-      color: var(--muted);
-      border: 1px solid var(--border);
-      margin: 0 4px 6px 0;
-    }
-    .tag.subject { color: var(--accent); border-color: rgba(91,140,255,0.4); }
-
-    /* ---------- Board (columns) ---------- */
-    .board {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 14px;
-      padding: 16px;
-      align-items: start;
-    }
-    .column {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      display: flex;
-      flex-direction: column;
-      max-height: calc(100vh - 90px);
-    }
-    .column-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--border);
-      position: sticky;
-      top: 0;
-      background: var(--panel);
-      border-radius: 12px 12px 0 0;
-    }
-    .column-header h2 {
-      font-size: 14px;
-      margin: 0;
-      letter-spacing: 0.3px;
-    }
-    .count-badge {
-      background: var(--panel-2);
-      color: var(--muted);
-      font-size: 12px;
-      padding: 2px 9px;
-      border-radius: 999px;
-    }
-    .column-body {
-      padding: 10px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .empty-hint {
-      color: var(--muted);
-      font-size: 13px;
-      text-align: center;
-      padding: 24px 8px;
-    }
-
-    /* ---------- Task card ---------- */
-    .card {
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 12px;
-    }
-    .card.overdue { border-left-color: var(--red); }
-    .card.today   { border-left-color: var(--amber); }
-    .card.upcoming{ border-left-color: var(--green); }
-
-    .card-title {
-      font-size: 13.5px;
-      font-weight: 600;
-      margin: 0 0 4px 0;
-      line-height: 1.35;
-    }
-    .card-meta {
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-    .due-pill {
-      display: inline-block;
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 999px;
-      margin-bottom: 6px;
-    }
-    .due-pill.overdue { background: rgba(255,92,92,0.15); color: var(--red); }
-    .due-pill.today   { background: rgba(255,176,32,0.15); color: var(--amber); }
-    .due-pill.upcoming{ background: rgba(62,207,142,0.15); color: var(--green); }
-    .due-pill.none    { background: var(--panel); color: var(--muted); }
-
-    .card-detail {
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 8px;
-      max-height: 54px;
-      overflow: hidden;
-    }
-    .card-actions {
-      display: flex;
-      gap: 8px;
-    }
-    .card-actions a, .card-actions button {
-      font-size: 12px;
-      padding: 5px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--text);
-      text-decoration: none;
-      cursor: pointer;
-    }
-    .card-actions .done-btn {
-      background: var(--green);
-      border-color: var(--green);
-      color: #0f1115;
-      font-weight: 600;
-    }
-
-    /* ---------- Responsive: phone gets tabs, one column visible ---------- */
-    @media (max-width: 860px) {
-      .tabbar { display: flex; }
-      .board {
-        grid-template-columns: 1fr;
-        padding: 10px;
-      }
-      .column { display: none; max-height: none; }
-      .column.active { display: flex; }
-    }
-  </style>
-</head>
-<body>
-
-  <div class="topbar">
-    <div>
-      <h1>College Tracker</h1>
-      <div class="who"><%= user.email %></div>
-    </div>
-    <div class="topbar-actions">
-      <a class="btn secondary" href="/calendar">Calendar</a>
-      <button class="btn secondary" id="scanBtn">Scan now</button>
-      <a class="btn secondary" href="/logout">Logout</a>
-    </div>
-  </div>
-
-  <!-- Tabs only appear on small screens; JS toggles which .column has .active -->
-  <div class="tabbar" id="tabbar">
-    <% sections.forEach(function(section, i) { %>
-      <button data-target="col-<%= section.key %>" class="<%= i === 0 ? 'active' : '' %>">
-        <%= section.label %> (<%= section.tasks.length %>)
+<!-- Sync Banner & ntfy config -->
+<div class="bg-surface-card/90 border border-surface-border rounded-2xl p-4 sm:p-5 mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl shadow-black/20">
+<div class="flex items-center gap-3.5">
+<div class="w-10 h-10 rounded-xl bg-accent-cyan/15 text-accent-cyan flex items-center justify-center shrink-0 border border-accent-cyan/30">
+<i class="w-5 h-5" data-lucide="network"></i>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h2 class="font-semibold text-white text-base">Auto-Sync Conduit</h2>
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wide font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          CLASSROOM + GMAIL
+        </span>
+</div>
+<p class="text-xs text-slate-400 mt-0.5">Autonomous background polling cycles every 15 mins.</p>
+</div>
+</div>
+<div class="flex items-center gap-2.5 w-full md:w-auto">
+<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-low rounded-xl border border-surface-border text-xs font-mono text-slate-300">
+<i class="w-3.5 h-3.5 text-accent-amber" data-lucide="bell"></i>
+<span>ntfy.sh/<strong class="text-white"><%= user.ntfy_topic %></strong></span>
+<button class="text-slate-400 hover:text-white ml-1" onclick="copyNtfyTopic('<%= user.ntfy_topic %>')" title="Copy topic">
+<i class="w-3.5 h-3.5" data-lucide="copy"></i>
+</button>
+</div>
+</div>
+</div>
+<!-- Sorting & Filter Controls (Matching backend query params) -->
+<form action="/dashboard" class="flex flex-wrap items-center justify-between gap-3 mb-6 bg-surface-low/80 p-3 rounded-xl border border-surface-border/70" id="filterForm" method="GET">
+<!-- Sort Group -->
+<div class="flex items-center gap-2">
+<span class="text-xs font-mono uppercase tracking-wider text-slate-400 mr-1">Sort:</span>
+<div class="inline-flex rounded-lg bg-surface-card p-1 border border-surface-border">
+<button class="px-3 py-1 text-xs font-medium rounded-md transition-colors <%= sort === 'due' ? 'bg-primary text-white shadow-sm' : 'text-slate-400 hover:text-white' %>" onclick="setSort('due')" type="button">
+        Due Date
       </button>
-    <% }); %>
-  </div>
+<button class="px-3 py-1 text-xs font-medium rounded-md transition-colors <%= sort === 'subject' ? 'bg-primary text-white shadow-sm' : 'text-slate-400 hover:text-white' %>" onclick="setSort('subject')" type="button">
+        Subject
+      </button>
+<button class="px-3 py-1 text-xs font-medium rounded-md transition-colors <%= sort === 'faculty' ? 'bg-primary text-white shadow-sm' : 'text-slate-400 hover:text-white' %>" onclick="setSort('faculty')" type="button">
+        Faculty
+      </button>
+</div>
+<input id="sortInput" name="sort" type="hidden" value="<%= sort %>"/>
+</div>
+<!-- Filter Dropdowns -->
+<div class="flex items-center gap-3">
+<!-- Subject Filter -->
+<select class="bg-surface-card border border-surface-border text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary" name="subject" onchange="document.getElementById('filterForm').submit()">
+<option value="">All Subjects</option>
+      <% subjects.forEach(sub => { %>
+        <option value="<%= sub %>" <%= subjectFilter === sub ? 'selected' : '' %>><%= sub %></option>
+      <% }) %>
+    </select>
+<!-- Faculty Filter -->
+<select class="bg-surface-card border border-surface-border text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary" name="faculty" onchange="document.getElementById('filterForm').submit()">
+<option value="">All Faculty</option>
+      <% faculties.forEach(fac => { %>
+        <option value="<%= fac %>" <%= facultyFilter === fac ? 'selected' : '' %>><%= fac %></option>
+      <% }) %>
+    </select>
+</div>
+</form>
+<!-- Four Dashboard Sections (from server.js CATEGORY_SECTIONS) -->
+<div class="space-y-8">
+  <% 
+    const sectionIcons = {
+      assignments: { icon: 'clipboard-list', labelClass: 'text-violet-400', badge: 'bg-violet-500/20 text-violet-300 border-violet-500/30' },
+      notes: { icon: 'book-open', labelClass: 'text-cyan-400', badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' },
+      quizzes: { icon: 'help-circle', labelClass: 'text-amber-400', badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
+      miscellaneous: { icon: 'bell', labelClass: 'text-rose-400', badge: 'bg-rose-500/20 text-rose-300 border-rose-500/30' }
+    };
+  %>
 
-  <!-- Sort + filter: plain GET form, no JS needed -->
-  <form class="filterbar" method="get" action="/dashboard">
-    <label>Sort by
-      <select name="sort" onchange="this.form.submit()">
-        <option value="due" <%= sort === 'due' ? 'selected' : '' %>>Due date</option>
-        <option value="subject" <%= sort === 'subject' ? 'selected' : '' %>>Subject</option>
-        <option value="faculty" <%= sort === 'faculty' ? 'selected' : '' %>>Faculty</option>
-      </select>
-    </label>
-    <label>Subject
-      <select name="subject" onchange="this.form.submit()">
-        <option value="">All subjects</option>
-        <% subjects.forEach(function(sub) { %>
-          <option value="<%= sub %>" <%= subjectFilter === sub ? 'selected' : '' %>><%= sub %></option>
-        <% }); %>
-      </select>
-    </label>
-    <label>Faculty
-      <select name="faculty" onchange="this.form.submit()">
-        <option value="">All faculty</option>
-        <% faculties.forEach(function(f) { %>
-          <option value="<%= f %>" <%= facultyFilter === f ? 'selected' : '' %>><%= f %></option>
-        <% }); %>
-      </select>
-    </label>
-    <% if (sort !== 'due' || subjectFilter || facultyFilter) { %>
-      <a class="reset" href="/dashboard">Reset</a>
-    <% } %>
-  </form>
+  <% sections.forEach(section => { %>
+    <% const cfg = sectionIcons[section.key] || sectionIcons.miscellaneous; %>
+    <section class="space-y-3">
+<div class="flex items-center justify-between pb-2 border-b border-surface-border/70">
+<div class="flex items-center gap-2.5">
+<i class="w-5 h-5 <%= cfg.labelClass %>" data-lucide="<%= cfg.icon %>"></i>
+<h3 class="text-base font-bold text-white tracking-wide"><%= section.label %></h3>
+<span class="text-xs px-2 py-0.5 rounded-full font-semibold border <%= cfg.badge %>">
+            <%= section.tasks.length %>
+          </span>
+</div>
+<span class="text-[11px] font-mono uppercase tracking-wider text-slate-500">
+          <% if(section.key === 'assignments') { %>Coursework Deliverables<% } %>
+          <% if(section.key === 'notes') { %>Handouts & Transcripts<% } %>
+          <% if(section.key === 'quizzes') { %>Timed Assessments<% } %>
+          <% if(section.key === 'miscellaneous') { %>Administrative & General<% } %>
+        </span>
+</div>
 
-  <div class="board">
-    <% sections.forEach(function(section, i) { %>
-      <div class="column <%= i === 0 ? 'active' : '' %>" id="col-<%= section.key %>">
-        <div class="column-header">
-          <h2><%= section.label %></h2>
-          <span class="count-badge"><%= section.tasks.length %></span>
+      <% if (section.tasks.length === 0) { %>
+        <div class="p-6 rounded-xl bg-surface-card/40 border border-surface-border/40 text-center text-slate-500 text-xs">
+          No active items in <%= section.label.toLowerCase() %>.
         </div>
-        <div class="column-body">
-          <% if (section.tasks.length === 0) { %>
-            <div class="empty-hint">Nothing here yet.</div>
-          <% } %>
-
-          <% section.tasks.forEach(function(task) { %>
-            <%
-              // Figure out urgency bucket in plain JS (no library needed)
-              var urgency = 'none';
-              if (task.due_date) {
-                var today = new Date();
-                today.setHours(0,0,0,0);
-                var due = new Date(task.due_date);
-                due.setHours(0,0,0,0);
-                var diffDays = Math.round((due - today) / 86400000);
-                if (diffDays < 0) urgency = 'overdue';
-                else if (diffDays === 0) urgency = 'today';
-                else urgency = 'upcoming';
-              }
-            %>
-            <div class="card <%= urgency %>" data-task-id="<%= task.id %>">
-              <% if (task.due_date) { %>
-                <span class="due-pill <%= urgency %>">
-                  <% if (urgency === 'overdue') { %>Overdue · <%= task.due_date %>
-                  <% } else if (urgency === 'today') { %>Due today
-                  <% } else { %>Due <%= task.due_date %>
+      <% } else { %>
+        <div class="grid grid-cols-1 gap-3">
+          <% section.tasks.forEach(task => { %>
+            <div class="p-4 rounded-xl bg-surface-card border border-surface-border hover:border-surface-highlight transition-all shadow-md group flex flex-col md:flex-row md:items-center justify-between gap-4" id="task-<%= task.id %>">
+<div class="space-y-1.5 flex-1 min-w-0">
+<div class="flex flex-wrap items-center gap-2 text-xs">
+<!-- Source Origin -->
+<span class="inline-flex items-center gap-1 font-medium text-slate-400">
+<i class="w-3.5 h-3.5 text-accent-cyan" data-lucide="<%= task.source === 'gmail' ? 'mail' : 'graduation-cap' %>"></i>
+                    <%= task.source === 'gmail' ? 'Gmail' : 'Google Classroom' %>
+                  </span>
+                  
+                  <% if (task.subject) { %>
+                    <span class="text-slate-500">•</span>
+<span class="px-2 py-0.5 rounded bg-surface-low border border-surface-border text-slate-300 font-mono text-[11px]">
+                      <%= task.subject %>
+                    </span>
                   <% } %>
-                </span>
-              <% } else { %>
-                <span class="due-pill none">No due date</span>
-              <% } %>
 
-              <% if (task.subject || task.faculty) { %>
-                <div>
-                  <% if (task.subject) { %><span class="tag subject"><%= task.subject %></span><% } %>
-                  <% if (task.faculty) { %><span class="tag"><%= task.faculty %></span><% } %>
+                  <% if (task.faculty) { %>
+                    <span class="text-slate-500">•</span>
+<span class="text-slate-400 text-xs"><%= task.faculty %></span>
+                  <% } %>
+
+                  <% if (task.due_date) { %>
+                    <span class="text-slate-500">•</span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30">
+<i class="w-3 h-3" data-lucide="clock"></i>
+                      Due: <%= task.due_date %>
+                    </span>
+                  <% } else { %>
+                    <span class="text-slate-500">•</span>
+<span class="text-[11px] text-slate-500">No Due Date</span>
+                  <% } %>
                 </div>
-              <% } %>
-              <p class="card-title"><%= task.title %></p>
-              <% if (!task.subject && !task.faculty) { %>
-                <div class="card-meta"><%= task.course_or_sender || '' %></div>
-              <% } %>
+<h4 class="text-sm font-semibold text-white group-hover:text-primary transition-colors">
+                  <%= task.title %>
+                </h4>
 
-              <% if (task.detail) { %>
-                <div class="card-detail"><%= task.detail %></div>
-              <% } %>
-
-              <div class="card-actions">
-                <% if (task.link) { %>
-                  <a href="<%= task.link %>" target="_blank" rel="noopener">Open</a>
+                <% if (task.snippet) { %>
+                  <p class="text-xs text-slate-400 line-clamp-2"><%= task.snippet %></p>
                 <% } %>
-                <button class="done-btn" onclick="markDone('<%= task.id %>', this)">Done</button>
               </div>
-            </div>
-          <% }); %>
+<!-- Action Buttons -->
+<div class="flex items-center gap-2 shrink-0 self-end md:self-center">
+                <% if (task.link) { %>
+                  <a class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-low hover:bg-surface-border text-slate-300 hover:text-white border border-surface-border text-xs font-medium transition-colors" href="<%= task.link %>" target="_blank">
+<i class="w-3.5 h-3.5" data-lucide="external-link"></i>
+<span>Open Source</span>
+</a>
+                <% } %>
+
+                <button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-low hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-300 border border-surface-border hover:border-emerald-500/40 text-xs font-medium transition-colors" onclick="markTaskDone(<%= task.id %>)">
+<i class="w-3.5 h-3.5 text-emerald-400" data-lucide="check-circle-2"></i>
+<span>Mark Done</span>
+</button>
+</div>
+</div>
+          <% }) %>
         </div>
-      </div>
-    <% }); %>
-  </div>
+      <% } %>
+    </section>
+  <% }) %>
+</div>
+<script>
+  function setSort(val) {
+    document.getElementById('sortInput').value = val;
+    document.getElementById('filterForm').submit();
+  }
 
-  <script>
-    // ---- Mobile tab switching ----
-    document.querySelectorAll('#tabbar button').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        document.querySelectorAll('#tabbar button').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.column').forEach(c => c.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(btn.dataset.target).classList.add('active');
-      });
-    });
+  function copyNtfyTopic(topic) {
+    navigator.clipboard.writeText(topic);
+    alert('Copied ntfy topic: ' + topic);
+  }
 
-    // ---- Mark a task as done ----
-    async function markDone(taskId, btnEl) {
-      btnEl.disabled = true;
-      btnEl.textContent = '...';
-      try {
-        const res = await fetch(`/api/tasks/${taskId}/complete`, { method: 'POST' });
-        if (res.ok) {
-          const card = btnEl.closest('.card');
-          card.remove();
-        } else {
-          btnEl.textContent = 'Done';
-          btnEl.disabled = false;
+  async function markTaskDone(taskId) {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/complete`, { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        const el = document.getElementById(`task-${taskId}`);
+        if (el) {
+          el.style.opacity = '0';
+          el.style.transform = 'scale(0.95)';
+          setTimeout(() => el.remove(), 250);
         }
-      } catch (err) {
-        btnEl.textContent = 'Done';
-        btnEl.disabled = false;
+      } else {
+        alert('Could not complete task.');
       }
+    } catch (e) {
+      alert('Network error marking task done.');
     }
+  }
+</script>
 
-    // ---- Scan now button ----
-    document.getElementById('scanBtn').addEventListener('click', async function () {
-      const btn = this;
-      btn.disabled = true;
-      btn.textContent = 'Scanning...';
-      try {
-        await fetch('/api/scan-now', { method: 'POST' });
-        location.reload();
-      } catch (err) {
-        btn.disabled = false;
-        btn.textContent = 'Scan now';
-      }
-    });
-  </script>
-
-</body>
-</html>
+<%- include('partials/footer') %>

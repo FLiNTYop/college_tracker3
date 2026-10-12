@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title><%= typeof title !== 'undefined' ? title : 'College Tracker' %></title>
+<!-- Space Grotesk Font & Lucide Icons -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/lucide@latest"></script>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Space Grotesk"', 'sans-serif'],
+          },
+          colors: {
+            surface: {
+              DEFAULT: '#0f131c',
+              dim: '#0b0f17',
+              low: '#141822',
+              card: '#181d29',
+              border: '#262d3d',
+              highlight: '#323b4e'
+            },
+            primary: {
+              DEFAULT: '#8b5cf6',
+              hover: '#7c3aed',
+              dim: '#3b2569'
+            },
+            accent: {
+              cyan: '#06b6d4',
+              emerald: '#10b981',
+              amber: '#f59e0b',
+              rose: '#f43f5e'
+            }
+          }
+        }
+      }
+    }
+  </script>
+<link href="/css/style.css" rel="stylesheet"/>
+</head>
+<body class="bg-surface-dim text-slate-100 font-sans min-h-screen flex flex-col antialiased selection:bg-primary/30 selection:text-white">
+<!-- Top Navigation Bar -->
+<header class="border-b border-surface-border bg-surface/90 backdrop-blur-md sticky top-0 z-50">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+<!-- Logo & Navigation Tabs -->
+<div class="flex items-center gap-8">
+<a class="flex items-center gap-3 group" href="/dashboard">
+<div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-primary to-accent-cyan flex items-center justify-center font-bold text-white shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform">
+            CT
+          </div>
+<div class="flex items-center gap-2">
+<span class="font-bold text-lg tracking-tight text-white">College Tracker</span>
+<span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">SYNC</span>
+</div>
+</a>
+<nav class="hidden md:flex items-center gap-1.5 bg-surface-low p-1 rounded-xl border border-surface-border/70">
+<a class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors <%= (typeof activeTab !== 'undefined' && activeTab === 'dashboard') ? 'bg-primary text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-surface-card' %>" href="/dashboard">
+            Dashboard
+          </a>
+<a class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors <%= (typeof activeTab !== 'undefined' && activeTab === 'calendar') ? 'bg-primary text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-surface-card' %>" href="/calendar">
+            Calendar
+          </a>
+</nav>
+</div>
+<!-- Right Header Actions -->
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary-hover shadow-lg shadow-primary/25 transition-all active:scale-95" id="headerScanBtn">
+<i class="w-4 h-4" data-lucide="refresh-cw" id="headerScanIcon"></i>
+<span>Scan Now</span>
+</button>
+<a class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-surface-card border border-surface-border/60 transition-colors relative" href="https://ntfy.sh/<%= user.ntfy_topic %>" target="_blank" title="View ntfy feed">
+<i class="w-4 h-4" data-lucide="bell"></i>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent-cyan animate-pulse"></span>
+</a>
+<div class="flex items-center gap-2 pl-2 border-l border-surface-border/60">
+<div class="w-8 h-8 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-slate-300">
+<i class="w-4 h-4" data-lucide="user"></i>
+</div>
+<span class="text-xs text-slate-300 hidden sm:inline-block max-w-[150px] truncate"><%= user.email %></span>
+<a class="p-1.5 text-slate-400 hover:text-rose-400 transition-colors" href="/logout" title="Logout">
+<i class="w-4 h-4" data-lucide="log-out"></i>
+</a>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Body Wrapper -->
+<main class="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">

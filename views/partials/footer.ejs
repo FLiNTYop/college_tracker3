@@ -1,0 +1,45 @@
+  </main>
+<footer class="border-t border-surface-border/60 bg-surface-dim/80 py-4 mt-auto">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+<div class="flex items-center gap-2">
+<span class="inline-block w-2 h-2 rounded-full bg-accent-emerald"></span>
+<span><strong>College Tracker Engine</strong> · Autonomous sync configured with Gmail & Google Classroom</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="px-2 py-0.5 rounded bg-surface-card border border-surface-border text-slate-400 font-mono text-[11px]">ntfy alerts ready</span>
+<span>© <%= new Date().getFullYear() %></span>
+</div>
+</div>
+</footer>
+<script>
+    // Initialize Lucide icons
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+
+    // Global Scan Now trigger
+    const scanBtn = document.getElementById('headerScanBtn');
+    if (scanBtn) {
+      scanBtn.addEventListener('click', async () => {
+        const icon = document.getElementById('headerScanIcon');
+        if (icon) icon.classList.add('animate-spin');
+        scanBtn.disabled = true;
+        try {
+          const res = await fetch('/api/scan-now', { method: 'POST' });
+          const data = await res.json();
+          if (data.ok) {
+            window.location.reload();
+          } else {
+            alert('Scan failed: ' + (data.error || 'Unknown error'));
+          }
+        } catch (e) {
+          alert('Error contacting server.');
+        } finally {
+          if (icon) icon.classList.remove('animate-spin');
+          scanBtn.disabled = false;
+        }
+      });
+    }
+  </script>
+</body>
+</html>
